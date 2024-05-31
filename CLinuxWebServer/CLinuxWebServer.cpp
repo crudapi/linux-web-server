@@ -86,11 +86,11 @@ void error_handing(char* message)
 
 void send_error(FILE* fp)
 {
-	char protocol[] = "HTTP/1.0 200 OK\r\n";
+	char protocol[] = "HTTP/1.0 400 Bad Request\r\n";
 	char server[] = "Server: Linux Web Server \r\n";
-	char cnt_len[] = "Content-length:2048\r\n";
+	char cnt_len[] = "Content-length:15\r\n";
 	char cnt_type[] = "Content-type:text/html\r\n\r\n";
-	char content[] = "Error!";
+	char content[] = "<h1>Error!</h1>";
 
 	fputs(protocol, fp);
 	fputs(server, fp);
@@ -167,7 +167,7 @@ void send_data(FILE* fp, char* ct, char* filename)
 	cout << "send_data...." << endl;
 	char protocol[] = "HTTP/1.0 200 OK\r\n";
 	char server[] = "Server: Linux Web Server \r\n";
-	char cnt_len[] = "Content-length:2048\r\n";
+	char cnt_len[] = "Content-length:18\r\n";
 	char cnt_type[SMAlL_BUF];
 	char buf[BUF_SIZE];
 	FILE* send_file;
