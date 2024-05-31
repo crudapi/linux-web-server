@@ -12,15 +12,17 @@ using namespace std;
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <pthread.h>
+#include <vector>
 
 #define BUF_SIZE 1024
 #define SMAlL_BUF 100
 
 void* request_handler(void* msg);
 void send_data(FILE* fp, char* ct, char* filename);
-char* content_type(char* file);
+char* content_type(const char* file);
 void send_error(FILE* fp);
 void error_handing(char* message);
+void splitStr(char* arr, char separator, vector<string>& strList);
 
 int main(int argc, char* argv[])
 {
@@ -57,7 +59,7 @@ int main(int argc, char* argv[])
 		error_handing("bind error!");
 	}
 
-	if (listen(server_socket, 20) == -1) 
+	if (listen(server_socket, 1024) == -1) 
 	{
 		error_handing("listen error!");
 	}
@@ -101,22 +103,67 @@ void send_error(FILE* fp)
 	fflush(fp);
 }
 
-char* content_type(char* file)
+char* content_type(const char* file)
 {
+	//GET /css/bootstrap.min.css HTTP/1.1
+
 	char extension[SMAlL_BUF];
 	char file_name[SMAlL_BUF];
-
 	strcpy(file_name, file);
-	strtok(file_name, ".");
-	strcpy(extension, strtok(NULL, "."));
+
+	vector<string> strList;
+	splitStr(file_name, '.', strList);
+
+	strcpy(extension, strList[strList.size() - 1].c_str());
 
 	if (!strcmp(extension, "html") || !strcmp(extension, "htm"))
 	{
 		return "text/html";
+	} 
+	else if (!strcmp(extension, "css"))
+	{
+		return "text/css";
+	}
+	else if (!strcmp(extension, "js"))
+	{
+		return "application/javascript";
+	}
+	else if (!strcmp(extension, "png"))
+	{
+		return "image/png";
+	}
+	else if (!strcmp(extension, "jpeg") || !strcmp(extension, "jpg"))
+	{
+		return "image/jpeg";
 	}
 	else {
 		return "text/plain";
 	}
+}
+
+void splitStr(char* arr, char separator, vector<string>& strList)
+{
+	int i = 0;
+
+	// Temporary string used to split the string.
+	string s;
+	while (arr[i] != '\0')
+	{
+		if (arr[i] != separator)
+		{
+			// Append the char to the temp string.
+			s += arr[i];
+		}
+		else
+		{
+			cout << s << endl;
+			strList.push_back(s);
+			s.clear();
+		}
+		i++;
+	}
+	cout << s << endl;
+	strList.push_back(s);
 }
 
 void* request_handler(void* msg)
@@ -128,7 +175,7 @@ void* request_handler(void* msg)
 	FILE* client_write;
 
 	char method[10];
-	char ct[15];
+	char ct[30];
 	char file_name[30];
 
 	client_read = fdopen(client_socket, "r");
@@ -138,6 +185,10 @@ void* request_handler(void* msg)
 
 	cout << req_line << endl;
 
+	//GET /css/bootstrap.min.css HTTP/1.1
+	vector<string> strList;
+	splitStr(req_line, ' ', strList);
+
 	if (strstr(req_line, "HTTP/") == NULL)
 	{
 		send_error(client_write);
@@ -146,9 +197,11 @@ void* request_handler(void* msg)
 		return NULL;
 	}
 
-	strcpy(method, strtok(req_line, " /"));
-	strcpy(file_name, strtok(NULL, " /"));
+	strcpy(method, strList[0].c_str());
+	strcpy(file_name, strList[1].c_str());
 	strcpy(ct, content_type(file_name));
+
+	cout << file_name << endl;
 
 	if (strcmp(method, "GET") != 0)
 	{
@@ -173,10 +226,11 @@ void send_data(FILE* fp, char* ct, char* filename)
 	FILE* send_file;
 
 	sprintf(cnt_type, "Content-type:%s\r\n\r\n", ct);
-	char fullPath[BUF_SIZE] = "/tmp/";
+	char fullPath[BUF_SIZE] = "/mnt/d/work/code/git/github.com/crudapi/crudapi-website/";
 
 	send_file = fopen(strcat(fullPath, filename), "r");
 	if (send_file == NULL) {
+		cout << fullPath << endl;
 		send_error(fp);
 		return;
 	}
@@ -184,7 +238,7 @@ void send_data(FILE* fp, char* ct, char* filename)
 
 	fputs(protocol, fp);
 	fputs(server, fp);
-	fputs(cnt_len, fp);
+	//fputs(cnt_len, fp);
 	fputs(cnt_type, fp);
 
 
