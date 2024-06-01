@@ -13,6 +13,9 @@ using namespace std;
 #include <sys/socket.h>
 #include <pthread.h>
 #include <vector>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 #define BUF_SIZE 1024
 #define SMAlL_BUF 100
@@ -23,6 +26,7 @@ char* content_type(const char* file);
 void send_error(FILE* fp);
 void error_handing(char* message);
 void splitStr(char* arr, char separator, vector<string>& strList);
+off_t get_file_size(char* file_name);
 
 int main(int argc, char* argv[])
 {
@@ -59,7 +63,7 @@ int main(int argc, char* argv[])
 		error_handing("bind error!");
 	}
 
-	if (listen(server_socket, 1024) == -1) 
+	if (listen(server_socket, 32) == -1) 
 	{
 		error_handing("listen error!");
 	}
@@ -156,13 +160,13 @@ void splitStr(char* arr, char separator, vector<string>& strList)
 		}
 		else
 		{
-			cout << s << endl;
+			//cout << s << endl;
 			strList.push_back(s);
 			s.clear();
 		}
 		i++;
 	}
-	cout << s << endl;
+	//cout << s << endl;
 	strList.push_back(s);
 }
 
@@ -183,7 +187,7 @@ void* request_handler(void* msg)
 
 	fgets(req_line, SMAlL_BUF, client_read);
 
-	cout << req_line << endl;
+	//cout << req_line << endl;
 
 	//GET /css/bootstrap.min.css HTTP/1.1
 	vector<string> strList;
@@ -201,7 +205,7 @@ void* request_handler(void* msg)
 	strcpy(file_name, strList[1].c_str());
 	strcpy(ct, content_type(file_name));
 
-	cout << file_name << endl;
+	//cout << file_name << endl;
 
 	if (strcmp(method, "GET") != 0)
 	{
@@ -215,30 +219,53 @@ void* request_handler(void* msg)
 	send_data(client_write, ct, file_name);
 }
 
+off_t get_file_size(char* file_name)
+{
+	int ret;
+	int fd = -1;
+	struct stat file_stat;
+
+	fd = open(file_name, O_RDONLY); // 打开文件
+	if (fd == -1) {
+		printf("Open file %s failed : %s\n", file_name, strerror(errno));
+		return -1;
+	}
+	ret = fstat(fd, &file_stat);    // 获取文件状态
+	if (ret == -1) {
+		printf("Get file %s stat failed:%s\n", file_name, strerror(errno));
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	return file_stat.st_size;
+}
+
 void send_data(FILE* fp, char* ct, char* filename)
 {
-	cout << "send_data...." << endl;
+	cout << "send_data " << filename << endl;
 	char protocol[] = "HTTP/1.0 200 OK\r\n";
 	char server[] = "Server: Linux Web Server \r\n";
-	char cnt_len[] = "Content-length:18\r\n";
+	char cnt_len[SMAlL_BUF];
 	char cnt_type[SMAlL_BUF];
 	char buf[BUF_SIZE];
 	FILE* send_file;
 
 	sprintf(cnt_type, "Content-type:%s\r\n\r\n", ct);
 	char fullPath[BUF_SIZE] = "/mnt/d/work/code/git/github.com/crudapi/crudapi-website/";
+	strcat(fullPath, filename);
+	long size = get_file_size(fullPath);
+	sprintf(cnt_len, "Content-length:%d\r\n", size);
 
-	send_file = fopen(strcat(fullPath, filename), "r");
+	send_file = fopen(fullPath, "r");
 	if (send_file == NULL) {
 		cout << fullPath << endl;
 		send_error(fp);
 		return;
 	}
 
-
 	fputs(protocol, fp);
 	fputs(server, fp);
-	//fputs(cnt_len, fp);
+	fputs(cnt_len, fp);
 	fputs(cnt_type, fp);
 
 
