@@ -21,6 +21,7 @@ using namespace std;
 #include<sys/select.h>
 #include<sys/time.h>
 #include<sys/epoll.h>
+#include<sys/poll.h>
 
 #define BUF_SIZE 1024
 #define SMAlL_BUF 100
@@ -44,7 +45,7 @@ void handler(int sig)
 
 int main(int argc, char* argv[])
 {
-	cout << "Hello Linux Web Server." << endl;
+	cout << "Hello Linux Web Server1." << endl;
 
 	int server_socket, clnt_sock;
 	struct sockaddr_in server_addr, client_addr;
@@ -54,10 +55,12 @@ int main(int argc, char* argv[])
 	int client_addr_size;
 	char buf[BUF_SIZE];
 
-
+	//epool
 	struct epoll_event* ep_events;
 	struct epoll_event event;
 	int epfd, event_cnt;
+
+
 
 	pthread_t t_id;
 
@@ -94,7 +97,7 @@ int main(int argc, char* argv[])
 		error_handing("listen error!");
 	}
 
-	char* type = "THREAD";
+	char* type = "POOL";
 	if (argc == 3) {
 		type = argv[2];
 	}
@@ -105,13 +108,12 @@ int main(int argc, char* argv[])
 	FD_SET(server_socket, &reads);
 	fd_max = server_socket;
 
-	epfd = epoll_create(EPOOL_SIZE);
-	ep_events = (struct epoll_event*)malloc(sizeof(struct epoll_event)* EPOOL_SIZE);
 
-	event.events = EPOLLIN;
-	event.data.fd = server_socket;
 
-	epoll_ctl(epfd, EPOLL_CTL_ADD, server_socket, &event);
+	//pool
+	struct pollfd* fds;
+	nfds_t nfds = 1;
+	int current_num = 1;
 
 	if (type == "SELECT") {
 		while (1) {
@@ -161,7 +163,59 @@ int main(int argc, char* argv[])
 			}
 		}
 	}
+	else if (type == "POOL") {
+		fds = (struct pollfd*)malloc(sizeof(struct pollfd) * 1024);
+		fds[0].fd = server_socket;
+		fds[0].events = POLLIN;
+		int ret = 0;
+		while (1) {
+
+			ret = poll(fds, nfds, -1);
+			if (ret == -1) {
+				cout << "poll error" << endl;
+				break;
+			}
+
+			if (fds[0].revents & POLLIN) //connection
+			{
+				client_addr_size = sizeof(clnt_sock);
+				clnt_sock = accept(server_socket, (struct sockaddr*)&clnt_sock, (socklen_t*)&client_addr_size);
+				if (clnt_sock < 0)
+				{
+					error_handing("POOL create client socket error!");
+				}
+
+				fds[current_num].fd = clnt_sock;
+				fds[current_num].events = POLLIN;
+				++current_num;
+				++nfds;
+
+				cout << "POOL accept clnt_sock: " << clnt_sock << "current_num: " << current_num << endl;
+			}
+
+			for (i = 1; i < current_num; ++i)
+			{
+				if (fds[i].revents & POLLIN) //connection
+				{
+					int* copy_client_socket = new int;
+					*copy_client_socket = fds[i].fd;
+					request_handler((void*)copy_client_socket);
+					close(fds[i].fd);
+					fds[i].fd = -1;
+					fds[i].events = 0;
+				}
+			}
+		}
+	}
 	else if (type == "EPOOL") {
+		epfd = epoll_create(EPOOL_SIZE);
+		ep_events = (struct epoll_event*)malloc(sizeof(struct epoll_event) * EPOOL_SIZE);
+
+		event.events = EPOLLIN;
+		event.data.fd = server_socket;
+
+		epoll_ctl(epfd, EPOLL_CTL_ADD, server_socket, &event);
+
 		while (1) {
 			event_cnt = epoll_wait(epfd, ep_events, EPOOL_SIZE, -1);
 			if (event_cnt == -1) {
