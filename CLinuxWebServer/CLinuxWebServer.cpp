@@ -18,6 +18,8 @@ using namespace std;
 #include <sys/stat.h>
 #include<signal.h>
 #include<sys/wait.h>
+#include<sys/select.h>
+#include<sys/time.h>
 
 #define BUF_SIZE 1024
 #define SMAlL_BUF 100
@@ -42,8 +44,11 @@ int main(int argc, char* argv[])
 {
 	cout << "Hello Linux Web Server." << endl;
 
-	int server_socket;
-	sockaddr_in server_addr, client_addr;
+	int server_socket, clnt_sock;
+	struct sockaddr_in server_addr, client_addr;
+	struct timeval timeout;
+	fd_set reads, cpy_reds;
+	int fd_max, str_len, fd_num, i;
 	int client_addr_size;
 	char buf[BUF_SIZE];
 
@@ -77,63 +82,116 @@ int main(int argc, char* argv[])
 		error_handing("bind error!");
 	}
 
-	if (listen(server_socket, 32) == -1) 
+	if (listen(server_socket, 5) == -1) 
 	{
 		error_handing("listen error!");
 	}
 
-	char* type = "P";
+	char* type = "SELECT";
 	if (argc == 3) {
 		type = argv[2];
 	}
 	//signal(SIGCHLD, handler);//指定SIGCHLD信号来到时，需要被handler函数处理
 	signal(SIGCHLD, SIG_IGN); //内核把僵尸子进程转交给init1号进程去处理释放，省去了父进程wait这个子进程的麻烦;
-	while (1) 
-	{
-		cout << "accept begin...." << endl;
-		client_addr_size = sizeof(client_addr);
-		int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, (socklen_t*)& client_addr_size);
-		if (client_socket < 0)
-		{
-			error_handing("create client socket error!");
-		}
-		cout << "accept one client: " << inet_ntoa(client_addr.sin_addr) << ":" << ntohs(client_addr.sin_port) << endl;
 
+	FD_ZERO(&reads);
+	FD_SET(server_socket, &reads);
+	fd_max = server_socket;
 
-		if (type == "P") {
-			cout << "fork = " << client_socket << endl;
-			pid_t pid = fork();
-			if (pid < 0)
-			{
-				close(server_socket);
-				error_handing("fork error!");
+	if (type == "SELECT") {
+		while (1) {
+			cpy_reds = reads;
+			timeout.tv_sec = 5;
+			timeout.tv_usec = 50000;
+
+			if ((fd_num = select(fd_max + 1, &cpy_reds, 0, 0, &timeout)) == -1) {
+				cout << "select error" << endl;
+				break;
 			}
-			else if (pid == 0)
+
+			if (fd_num == 0) {
+				cout << "fd_num == 0 continue" << endl;
+				continue;
+			}
+
+			for (i = 0; i < fd_max + 1; i++) {
+				if (FD_ISSET(i, &cpy_reds))
+				{
+					if (i == server_socket) //connection
+					{
+						client_addr_size = sizeof(clnt_sock);
+						clnt_sock = accept(server_socket, (struct sockaddr*)&clnt_sock, (socklen_t*)&client_addr_size);
+						if (clnt_sock < 0)
+						{
+							error_handing("create client socket error!");
+						}
+
+						FD_SET(clnt_sock, &cpy_reds);
+
+						if (fd_max < clnt_sock)
+						{
+							fd_max = clnt_sock;
+						}
+						cout << "accept clnt_sock: " << clnt_sock << endl;
+					} 
+					else
+					{
+						int* copy_client_socket = new int;
+						*copy_client_socket = clnt_sock;
+						request_handler((void*)copy_client_socket);
+					}
+				}
+			}
+		}
+	}
+	else {
+		while (1)
+		{
+			cout << "accept begin...." << endl;
+			client_addr_size = sizeof(client_addr);
+			int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, (socklen_t*)&client_addr_size);
+			if (client_socket < 0)
 			{
-				close(server_socket);//子进程，关闭server_socket
+				error_handing("create client socket error!");
+			}
+			cout << "accept one client: " << inet_ntoa(client_addr.sin_addr) << ":" << ntohs(client_addr.sin_port) << endl;
+
+
+			if (type == "P") {
+				cout << "fork = " << client_socket << endl;
+				pid_t pid = fork();
+				if (pid < 0)
+				{
+					close(server_socket);
+					error_handing("fork error!");
+				}
+				else if (pid == 0)
+				{
+					close(server_socket);//子进程，关闭server_socket
+
+					int* copy_client_socket = new int;
+					*copy_client_socket = client_socket;
+					request_handler((void*)copy_client_socket);
+
+					//close(client_socket);
+					exit(0);
+
+				}
+				else if (pid > 0) //父进程，关闭client_socket
+				{
+					cout << "fork pid = " << pid << endl;
+					close(client_socket);
+				}
+
+			}
+			else if (type == "T") {
+				cout << "pthread_create client_socket = " << client_socket << endl;
 
 				int* copy_client_socket = new int;
 				*copy_client_socket = client_socket;
-				request_handler((void*)copy_client_socket);
-
-				//close(client_socket);
-				exit(0);
-
-			} 
-			else if (pid > 0) //父进程，关闭client_socket
-			{
-				cout << "fork pid = " << pid << endl;
-				close(client_socket);
+				pthread_create(&t_id, NULL, request_handler, (void*)copy_client_socket);
+				pthread_detach(t_id);
 			}
-
-		} 
-		else if (type == "T") {
-			cout << "pthread_create client_socket = " << client_socket << endl;
-
-			int* copy_client_socket = new int;
-			*copy_client_socket = client_socket;
-			pthread_create(&t_id, NULL, request_handler, (void*)copy_client_socket);
-			pthread_detach(t_id);
 		}
 	}
 
