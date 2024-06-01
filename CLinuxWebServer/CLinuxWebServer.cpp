@@ -86,8 +86,8 @@ int main(int argc, char* argv[])
 	if (argc == 3) {
 		type = argv[2];
 	}
-	signal(SIGCHLD, handler);//指定SIGCHLD信号来到时，需要被handler函数处理
-	//signal(SIGCHLD, SIG_IGN); 
+	//signal(SIGCHLD, handler);//指定SIGCHLD信号来到时，需要被handler函数处理
+	signal(SIGCHLD, SIG_IGN); //内核把僵尸子进程转交给init1号进程去处理释放，省去了父进程wait这个子进程的麻烦;
 	while (1) 
 	{
 		cout << "accept begin...." << endl;
@@ -126,7 +126,8 @@ int main(int argc, char* argv[])
 				close(client_socket);
 			}
 
-		} else {
+		} 
+		else if (type == "T") {
 			cout << "pthread_create client_socket = " << client_socket << endl;
 
 			int* copy_client_socket = new int;
