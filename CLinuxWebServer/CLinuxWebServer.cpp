@@ -47,6 +47,10 @@ int main(int argc, char* argv[])
 	}
 
 	server_socket = socket(PF_INET, SOCK_STREAM, 0);
+	if (server_socket < 0) 
+	{
+		error_handing("create socket error!");
+	}
 
 	int on = 1;
 	if (setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
@@ -73,9 +77,18 @@ int main(int argc, char* argv[])
 		cout << "accept begin...." << endl;
 		client_addr_size = sizeof(client_addr);
 		client_socket = accept(server_socket, (struct sockaddr*)&client_addr, (socklen_t*)& client_addr_size);
-		cout << "accept one client: " << inet_ntoa(client_addr.sin_addr) << ntohs(client_addr.sin_port) << endl;
+		if (client_socket < 0)
+		{
+			error_handing("create client socket error!");
+		}
 
-		pthread_create(&t_id, NULL, request_handler, &client_socket);
+		cout << "accept one client: " << inet_ntoa(client_addr.sin_addr) << ":" << ntohs(client_addr.sin_port) << endl;
+
+		cout << "pthread_create client_socket = " << client_socket << endl;
+
+		int* copy_client_socket = new int;
+		*copy_client_socket = client_socket;
+		pthread_create(&t_id, NULL, request_handler, (void*)copy_client_socket);
 		pthread_detach(t_id);
 	}
 
@@ -173,6 +186,9 @@ void splitStr(char* arr, char separator, vector<string>& strList)
 void* request_handler(void* msg)
 {
 	int client_socket = *((int*)msg);
+	delete msg;
+	cout << "client_socket = " << client_socket << endl;
+
 	char req_line[SMAlL_BUF];
 
 	FILE* client_read;
@@ -184,9 +200,18 @@ void* request_handler(void* msg)
 
 	client_read = fdopen(client_socket, "r");
 	client_write = fdopen(dup(client_socket), "w");
+	if (client_write == NULL)
+	{
+		error_handing("create client_write error!");
+	}
+
+	if (client_read == NULL)
+	{
+		error_handing("create client_read error!");
+	}
 
 	fgets(req_line, SMAlL_BUF, client_read);
-
+	
 	//cout << req_line << endl;
 
 	//GET /css/bootstrap.min.css HTTP/1.1
@@ -251,9 +276,15 @@ void send_data(FILE* fp, char* ct, char* filename)
 	FILE* send_file;
 
 	sprintf(cnt_type, "Content-type:%s\r\n\r\n", ct);
-	char fullPath[BUF_SIZE] = "/mnt/d/work/code/git/github.com/crudapi/crudapi-website/";
+	char fullPath[BUF_SIZE] = "/mnt/d/work/code/git/github.com/crudapi/crudapi-website";
 	strcat(fullPath, filename);
 	long size = get_file_size(fullPath);
+	if (size < 0) {
+		cout << fullPath << endl;
+		send_error(fp);
+		return;
+	}
+
 	sprintf(cnt_len, "Content-length:%d\r\n", size);
 
 	send_file = fopen(fullPath, "r");
