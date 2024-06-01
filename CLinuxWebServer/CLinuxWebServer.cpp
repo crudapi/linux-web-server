@@ -20,9 +20,11 @@ using namespace std;
 #include<sys/wait.h>
 #include<sys/select.h>
 #include<sys/time.h>
+#include<sys/epoll.h>
 
 #define BUF_SIZE 1024
 #define SMAlL_BUF 100
+#define EPOOL_SIZE 50
 
 void* request_handler(void* msg);
 void send_data(FILE* fp, char* ct, char* filename);
@@ -51,6 +53,11 @@ int main(int argc, char* argv[])
 	int fd_max, str_len, fd_num, i;
 	int client_addr_size;
 	char buf[BUF_SIZE];
+
+
+	struct epoll_event* ep_events;
+	struct epoll_event event;
+	int epfd, event_cnt;
 
 	pthread_t t_id;
 
@@ -87,7 +94,7 @@ int main(int argc, char* argv[])
 		error_handing("listen error!");
 	}
 
-	char* type = "SELECT";
+	char* type = "THREAD";
 	if (argc == 3) {
 		type = argv[2];
 	}
@@ -97,6 +104,14 @@ int main(int argc, char* argv[])
 	FD_ZERO(&reads);
 	FD_SET(server_socket, &reads);
 	fd_max = server_socket;
+
+	epfd = epoll_create(EPOOL_SIZE);
+	ep_events = (struct epoll_event*)malloc(sizeof(struct epoll_event)* EPOOL_SIZE);
+
+	event.events = EPOLLIN;
+	event.data.fd = server_socket;
+
+	epoll_ctl(epfd, EPOLL_CTL_ADD, server_socket, &event);
 
 	if (type == "SELECT") {
 		while (1) {
@@ -137,11 +152,47 @@ int main(int argc, char* argv[])
 					else
 					{
 						int* copy_client_socket = new int;
-						*copy_client_socket = clnt_sock;
+						*copy_client_socket = i;
 						request_handler((void*)copy_client_socket);
 						FD_CLR(i, &cpy_reds);
-						close(clnt_sock);
+						close(i);
 					}
+				}
+			}
+		}
+	}
+	else if (type == "EPOOL") {
+		while (1) {
+			event_cnt = epoll_wait(epfd, ep_events, EPOOL_SIZE, -1);
+			if (event_cnt == -1) {
+				cout << "select error" << endl;
+				break;
+			}
+
+			for (i = 0; i < event_cnt; ++i)
+			{
+				if (ep_events[i].data.fd == server_socket) //connection
+				{
+					client_addr_size = sizeof(clnt_sock);
+					clnt_sock = accept(server_socket, (struct sockaddr*)&clnt_sock, (socklen_t*)&client_addr_size);
+					if (clnt_sock < 0)
+					{
+						error_handing("create client socket error!");
+					}
+
+					event.events = EPOLLIN;
+					event.data.fd = clnt_sock;
+					epoll_ctl(epfd, EPOLL_CTL_ADD, clnt_sock, &event);
+
+					cout << "accept clnt_sock: " << clnt_sock << endl;
+				}
+				else
+				{
+					int* copy_client_socket = new int;
+					*copy_client_socket = ep_events[i].data.fd;
+					request_handler((void*)copy_client_socket);
+					epoll_ctl(epfd, EPOLL_CTL_DEL, ep_events[i].data.fd, NULL);
+					close(ep_events[i].data.fd);
 				}
 			}
 		}
@@ -186,7 +237,7 @@ int main(int argc, char* argv[])
 				}
 
 			}
-			else if (type == "T") {
+			else if (type == "THREAD") {
 				cout << "pthread_create client_socket = " << client_socket << endl;
 
 				int* copy_client_socket = new int;
@@ -198,6 +249,7 @@ int main(int argc, char* argv[])
 	}
 
 	close(server_socket);
+	close(epfd);
 
 	return 0;
 }
@@ -349,6 +401,9 @@ void* request_handler(void* msg)
 
 	fclose(client_read);
 	send_data(client_write, ct, file_name);
+
+	//pthread_exit(0);
+	//close(client_socket);
 }
 
 off_t get_file_size(char* file_name)
