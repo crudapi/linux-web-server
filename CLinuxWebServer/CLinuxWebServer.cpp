@@ -139,6 +139,8 @@ int main(int argc, char* argv[])
 						int* copy_client_socket = new int;
 						*copy_client_socket = clnt_sock;
 						request_handler((void*)copy_client_socket);
+						FD_CLR(i, &cpy_reds);
+						close(clnt_sock);
 					}
 				}
 			}
