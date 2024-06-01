@@ -16,6 +16,8 @@ using namespace std;
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include<signal.h>
+#include<sys/wait.h>
 
 #define BUF_SIZE 1024
 #define SMAlL_BUF 100
@@ -27,12 +29,20 @@ void send_error(FILE* fp);
 void error_handing(char* message);
 void splitStr(char* arr, char separator, vector<string>& strList);
 off_t get_file_size(char* file_name);
+void handler(int sig);
+
+void handler(int sig)
+{
+	pid_t id;
+	while ((id = waitpid(-1, NULL, WNOHANG)) > 0)//while循环处理需要回收的子进程
+		printf("wait child success : % d\n", id);
+}
 
 int main(int argc, char* argv[])
 {
 	cout << "Hello Linux Web Server." << endl;
 
-	int server_socket, client_socket;
+	int server_socket;
 	sockaddr_in server_addr, client_addr;
 	int client_addr_size;
 	char buf[BUF_SIZE];
@@ -72,25 +82,61 @@ int main(int argc, char* argv[])
 		error_handing("listen error!");
 	}
 
+	char* type = "P";
+	if (argc == 3) {
+		type = argv[2];
+	}
+	signal(SIGCHLD, handler);//指定SIGCHLD信号来到时，需要被handler函数处理
+	//signal(SIGCHLD, SIG_IGN); 
 	while (1) 
 	{
 		cout << "accept begin...." << endl;
 		client_addr_size = sizeof(client_addr);
-		client_socket = accept(server_socket, (struct sockaddr*)&client_addr, (socklen_t*)& client_addr_size);
+		int client_socket = accept(server_socket, (struct sockaddr*)&client_addr, (socklen_t*)& client_addr_size);
 		if (client_socket < 0)
 		{
 			error_handing("create client socket error!");
 		}
-
 		cout << "accept one client: " << inet_ntoa(client_addr.sin_addr) << ":" << ntohs(client_addr.sin_port) << endl;
 
-		cout << "pthread_create client_socket = " << client_socket << endl;
 
-		int* copy_client_socket = new int;
-		*copy_client_socket = client_socket;
-		pthread_create(&t_id, NULL, request_handler, (void*)copy_client_socket);
-		pthread_detach(t_id);
+		if (type == "P") {
+			cout << "fork = " << client_socket << endl;
+			pid_t pid = fork();
+			if (pid < 0)
+			{
+				close(server_socket);
+				error_handing("fork error!");
+			}
+			else if (pid == 0)
+			{
+				close(server_socket);//子进程，关闭server_socket
+
+				int* copy_client_socket = new int;
+				*copy_client_socket = client_socket;
+				request_handler((void*)copy_client_socket);
+
+				//close(client_socket);
+				exit(0);
+
+			} 
+			else if (pid > 0) //父进程，关闭client_socket
+			{
+				cout << "fork pid = " << pid << endl;
+				close(client_socket);
+			}
+
+		} else {
+			cout << "pthread_create client_socket = " << client_socket << endl;
+
+			int* copy_client_socket = new int;
+			*copy_client_socket = client_socket;
+			pthread_create(&t_id, NULL, request_handler, (void*)copy_client_socket);
+			pthread_detach(t_id);
+		}
 	}
+
+	close(server_socket);
 
 	return 0;
 }
@@ -282,6 +328,7 @@ void send_data(FILE* fp, char* ct, char* filename)
 	if (size < 0) {
 		cout << fullPath << endl;
 		send_error(fp);
+		fclose(fp);
 		return;
 	}
 
@@ -291,6 +338,7 @@ void send_data(FILE* fp, char* ct, char* filename)
 	if (send_file == NULL) {
 		cout << fullPath << endl;
 		send_error(fp);
+		fclose(fp);
 		return;
 	}
 
